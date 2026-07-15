@@ -226,7 +226,7 @@ distinct from calculation-based answers.
 | 5 | File reader | ✅ Pass |
 | 6 | Memory / multi-turn | ✅ Pass |
 | 7 | Error handling (rate limit) | ✅ Pass (after fix) |
-| 8 | Ambiguous query | ✅ Pending |
-| 9 | Off-topic query (no unnecessary tools) | ✅ Pending |
-| 10 | Fictional/unanswerable query (honesty) | ✅ Pending |
+| 8 | Ambiguous query | ✅ Pass |
+| 9 | Off-topic query (no unnecessary tools) | ✅ Pass |
+| 10 | Fictional/unanswerable query (honesty) | ✅ Pass |
 | 11 | Chatbot vs. Agent comparison | ✅ Pass |
