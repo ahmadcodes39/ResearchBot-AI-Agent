@@ -1,8 +1,7 @@
 # Test Cases & Results — ResearchBot Agent
 
 This document records real test runs against the agent, covering tool selection,
-memory, structured output, and error handling, per Task 7 requirement #13
-("Test the agent with multiple real-world scenarios and edge cases").
+memory, structured output, and error handling
 
 ---
 
