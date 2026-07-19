@@ -1,5 +1,6 @@
-from agent import agent
 from datetime import datetime
+from agent import agent, structured_llm
+
 
 def log(message: str):
     """Print a timestamped log line so the agent's reasoning is visible live."""
@@ -16,38 +17,10 @@ def run_chat():
         if user_input.lower() in ("exit", "quit"):
             print("Goodbye!")
             break
+        if not user_input:
+            continue
 
         log("Agent received query, starting reasoning...")
-
-        final_chunk = None
-
-        # stream_mode="updates" yields one chunk per node/step as it happens
-        for chunk in agent.stream(
-            {"messages": [{"role": "user", "content": user_input}]},
-            config=config,
-            stream_mode="updates",
-        ):
-            for node_name, node_output in chunk.items():
-                messages = node_output.get("messages", [])
-                for msg in messages:
-                    msg_type = msg.__class__.__name__
-
-                    if msg_type == "AIMessage":
-                        if msg.tool_calls:
-                            for tc in msg.tool_calls:
-                                log(f"🔧 Agent decided to call tool: {tc['name']}  args={tc['args']}")
-                        elif msg.text:
-                            log(f"🤖 Agent reasoning/answer: {msg.text[:200]}")
-
-                    elif msg_type == "ToolMessage":
-                        preview = msg.text[:200] if msg.text else str(msg.content)[:200]
-                        log(f"👀 Tool result received: {preview}...")
-
-            final_chunk = chunk
-
-        log("Agent received query, starting reasoning...")
-
-        final_chunk = None
 
         try:
             for chunk in agent.stream(
@@ -63,15 +36,13 @@ def run_chat():
                         if msg_type == "AIMessage":
                             if msg.tool_calls:
                                 for tc in msg.tool_calls:
-                                    log(f"🔧 Agent decided to call tool: {tc['name']}  args={tc['args']}")
+                                    log(f"Agent decided to call tool: {tc['name']}  args={tc['args']}")
                             elif msg.text:
-                                log(f"🤖 Agent reasoning/answer: {msg.text[:200]}")
+                                log(f"Agent reasoning/answer: {msg.text[:200]}")
 
                         elif msg_type == "ToolMessage":
                             preview = msg.text[:200] if msg.text else str(msg.content)[:200]
-                            log(f"👀 Tool result received: {preview}...")
-
-                final_chunk = chunk
+                            log(f"Tool result received: {preview}...")
 
         except Exception as e:
             error_str = str(e)
@@ -79,12 +50,34 @@ def run_chat():
                 print("\nResearchBot: I've hit the API rate limit for now. "
                       "Please wait about a minute and try again.\n")
             else:
-                log(f"⚠️ Unexpected error: {error_str[:200]}")
+                log(f"Unexpected error: {error_str[:200]}")
                 print("\nResearchBot: Something went wrong while processing that. "
                       "Please try rephrasing your question.\n")
             continue
 
-        log("Agent finished reasoning. Preparing final answer.\n")
+        log("Agent finished reasoning. Formatting final answer...\n")
+
+        final_state = agent.get_state(config)
+        messages = final_state.values.get("messages", [])
+        raw_answer = messages[-1].text if messages else "No response."
+
+        try:
+            # Separate, tool-free call: cannot trigger a new search/loop,
+            # just reformats the already-gathered answer into the schema.
+            structured = structured_llm.invoke(
+                f"Convert this research answer into the required structured format:\n\n{raw_answer}"
+            )
+            print("ResearchBot:")
+            print("Summary:", structured.summary)
+            print("\nKey Findings:")
+            for point in structured.key_findings:
+                print(" -", point)
+            print("\nSources:", ", ".join(structured.sources) if structured.sources else "None")
+            print("Confidence:", structured.confidence)
+            print()
+        except Exception as e:
+            log(f"Structured formatting failed: {str(e)[:200]}")
+            print("ResearchBot:", raw_answer, "\n")
 
 
 if __name__ == "__main__":

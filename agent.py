@@ -1,9 +1,12 @@
+import os
 from dotenv import load_dotenv
 from langchain.agents import create_agent
-from langgraph.checkpoint.memory import InMemorySaver
-from tools import web_search, calculator, file_reader
 from langchain_google_genai import ChatGoogleGenerativeAI
+from langgraph.checkpoint.memory import InMemorySaver
+
+from tools import web_search, calculator, file_reader
 from schemas import ResearchAnswer
+
 load_dotenv()
 
 
@@ -34,46 +37,70 @@ INSTRUCTIONS:
    document.
 5. If one search isn't enough to fully answer the question, search again
    with a refined query rather than guessing.
-6. Always cite where information came from (source name or URL) in your
-   final answer.
-7. Keep the final answer clear and organized, use bullet points or short
+6. When citing sources, always extract the actual URL or publication name
+   from tool results. Never write the literal tool name (e.g. "web_search",
+   "calculator") as a source.
+7. If a question is ambiguous or could mean several things, briefly state
+   the assumption you're making rather than silently guessing.
+8. Keep the final answer clear and organized, use bullet points or short
    sections when appropriate.
 
 CONSTRAINTS:
 - Never make up facts, dates, statistics, or sources. If you don't know and
   can't find it, say so honestly.
-- When citing sources, always extract the actual URL or publication name from
-  tool results. Never write the literal tool name (e.g. "web_search",
-  "calculator") as a source.
 - Never call a tool unless it's actually needed for the task.
 - Do not repeat the same tool call with the same input twice.
 - Keep responses focused, no unnecessary filler text.
 """
 
-checkpointer = InMemorySaver()
+# Change model here, or set AGENT_MODEL env var.
+# Use gemini-3.1-flash-lite for development/testing (higher free-tier quota),
+# switch to gemini-2.5-flash for the final demo recording.
+MODEL_NAME = os.getenv("AGENT_MODEL", "gemini-3.1-flash-lite")
 
 llm = ChatGoogleGenerativeAI(
-    model="gemini-3.1-flash-lite",
+    model=MODEL_NAME,
     temperature=0,
 )
 
+checkpointer = InMemorySaver()
+
+# NOTE: response_format is intentionally NOT passed to create_agent here.
+# Combining tools + response_format in LangChain 1.0 causes the agent to
+# re-enter its reasoning loop (a known framework issue with Gemini models,
+# not fully reliable even on Gemini 3), sometimes duplicating tool calls.
+# Instead, the ReAct loop runs first (tools only), then a separate,
+# tool-free call formats the final answer into the schema. See README
+# "Known Limitations" for details.
 agent = create_agent(
     model=llm,
     tools=[web_search, calculator, file_reader],
     system_prompt=SYSTEM_PROMPT,
     checkpointer=checkpointer,
-    response_format=ResearchAnswer,
 )
 
-if __name__ == "__main__":
-    query = f"Read the file at sample.txt and summarize what it says."
-    result = agent.invoke({
-        "messages": [{"role": "user", "content": query}]
-    })
+# Separate formatter: no tools bound, so it cannot trigger a new search/loop.
+structured_llm = llm.with_structured_output(ResearchAnswer)
 
-    # Print every step (this shows the ReAct loop: thoughts, tool calls, observations)
+
+if __name__ == "__main__":
+    query = "What are the latest breakthroughs in quantum computing in 2026?"
+
+    # Step 1: run the normal ReAct loop (reasoning + tools)
+    result = agent.invoke(
+        {"messages": [{"role": "user", "content": query}]},
+        config={"configurable": {"thread_id": "test-thread"}},
+    )
+
     for msg in result["messages"]:
         print(f"\n--- {msg.__class__.__name__} ---")
         print(msg.text if msg.content else msg.tool_calls)
 
-    print("\n\nFINAL ANSWER:\n", result["messages"][-1].text)
+    final_answer_text = result["messages"][-1].text
+    print("\n\nFINAL ANSWER (raw):\n", final_answer_text)
+
+    # Step 2: separate, tool-free call to format into the Pydantic schema
+    structured = structured_llm.invoke(
+        f"Convert this research answer into the required structured format:\n\n{final_answer_text}"
+    )
+    print("\n\nSTRUCTURED OUTPUT:\n", structured)

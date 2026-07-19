@@ -2,7 +2,7 @@ from langchain_community.tools import DuckDuckGoSearchResults
 from langchain.tools import tool
 from pypdf import PdfReader
 
-# Tool 1: Web Search (now returns titles + links + snippets, not just text)
+# Tool 1: Web Search 
 search_tool = DuckDuckGoSearchResults(output_format="list")
 
 @tool
